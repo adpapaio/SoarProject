@@ -1,0 +1,168 @@
+#Description: Soar agent code to go around a map and eat points
+#Author: Aristotelis Papaioannou
+#Last Modification Date: 6/24/2016
+  
+#Initializing the state directions for each square
+#Also writes their oppossites
+sp {initialize*state*directions
+   (state <ss> ^type state)
+   -->
+   (<ss> ^directions <n> <e> <s> <w>)
+   (<n> ^value north ^opposite south)
+   (<e> ^value east  ^opposite west)
+   (<s> ^value south ^opposite north)
+   (<w> ^value west  ^opposite east)}
+
+#Writes the point system for the board/map
+#will be used later in the elaborate
+sp {init*elaborate*name-content-value
+   (state <s> ^type state)
+   -->
+   (<s> ^name-content-value <c1> <c2> <c3> <c4> <c5>    
+                       <c6> <c7> <c8>) 
+   (<c1> ^name move ^content empty ^value 0)
+   (<c2> ^name move ^content eater ^value 0)
+   (<c3> ^name move ^content normalfood ^value 5)
+   (<c4> ^name move ^content bonusfood ^value 10)
+   (<c5> ^name jump ^content empty ^value -5)
+   (<c6> ^name jump ^content eater ^value -5)
+   (<c7> ^name jump ^content normalfood ^value 0)
+   (<c8> ^name jump ^content bonusfood ^value 5)}
+
+
+# Propose*move*no-backward:
+# If there is normalfood, bonusfood, eater, or empty in an adjacent cell, 
+#    and the next move is the last direction
+# Then move a space
+sp {propose*move*no-backward
+   (state <s> ^io.input-link.my-location.<dir>.content { <content> <> wall }
+              ^directions <d>
+             -^last-direction <o-dir>)
+   (<d> ^value <dir>
+        ^opposite <o-dir>)
+-->
+  (<s> ^operator <o> +, =)
+   (<o> ^name move
+        ^content <content>
+        ^actions.move.direction <dir>)} 
+
+#Propose*jump
+#If there is not a wall or an empty space in squares in a 2 square radius
+#    and the next move is the last direction
+#Then do not jump and continue moving
+sp {propose*jump
+   (state <s> ^io.input-link.my-location.<dir>.<dir>.content { <content> <> wall }
+              ^io.input-link.my-location.<dir>.<dir>.content { <content> <> empty}
+              ^directions <d>
+             -^last-direction <o-dir>)
+   (<d> ^value <dir>
+        ^opposite <o-dir>)
+-->
+   (<s> ^operator <o> +, =)
+   (<o> ^name jump
+        ^content <content>
+         ^actions.jump.direction <dir>)}
+
+#Calculates which choices is better using the current location and the 
+#point system stated above
+sp {elaborate*operator*value
+   (state <s> ^operator <o> +
+              ^name-content-value <ccv>)
+   (<o>   ^name <name> ^content <content>)
+   (<ccv> ^name <name> ^content <content> ^value <value>)
+   -->
+   (<o> ^value <value>)}
+
+#Compares best value between possible moves 
+#and returns the better option
+sp {select*compare*best*value
+   (state <s> ^operator <o1> +
+              ^operator <o2> +)
+   (<o1> ^value <v>)
+   (<o2> ^value < <v>)
+-->
+   (<s> ^operator <o1> > <o2>)}
+
+#Applies the action
+sp {apply*operator*create-action-command
+   (state <s> ^operator <o>
+              ^io.output-link <ol>)
+   (<o> ^actions <act>)
+   (<act> ^<att> <value>)
+-->
+   (<ol> ^<att> <value>)}
+
+#removes the action and labels it as complete
+sp {apply*operator*remove-command
+   (state <s> ^operator.actions
+              ^io.output-link <ol>)
+   (<ol> ^<att> <value>)
+   (<value> ^status complete)
+-->
+   (<ol> ^<att> <value> -)}
+
+
+# Apply*move*remove-move
+# If the move has happened remove the move from the operation
+sp {apply*move*remove-move
+   (state <s> ^io.output-link <ol>
+              ^operator.name move)
+   (<ol> ^move <direction>)
+   (<direction> ^status complete)
+-->
+   (<ol> ^move <direction> -)}
+
+# Apply*move*create*last-direction
+# If the move is the action then create the listing for the move
+sp {apply*move*create*last-direction
+   (state <s> ^operator <o>)
+   (<o> ^name move
+        ^direction <direction>)
+-->
+   (<s> ^last-direction <direction>)}
+
+# Apply*move*remove*last-direction
+# Remove the last direction 
+sp {apply*move*remove*last-direction
+   (state <s> ^operator <o>
+              ^last-direction <direction>)
+   (<o> ^direction <> <direction>
+     ^name move)
+-->
+   (<s> ^last-direction <direction> -)}
+
+# Select*move*bonusfood-better-than-normalfood
+# Will make the eater to go towards a bonusfood rather than a normal food 
+#if it has to choose between them
+sp {select*move*bonusfood-better-than-normalfood-empty
+   (state <s> ^operator <o1> +
+              ^operator <o2> +)
+   (<o1> ^name move 
+         ^content bonusfood)
+   (<o2> ^name move 
+         ^content << normalfood empty >>)
+-->
+   (<s> ^operator <o1> > <o2>)}
+
+# Select*move*avoid-empty-eater
+# Will avoid a spot if an eater is in the next spot
+sp {select*move*avoid-empty-eater
+   (state <s> ^operator <o1> +)
+   (<o1> ^name move 
+         ^content << empty eater >>)
+-->
+   (<s> ^operator <o1> <)}
+
+# Select*move*reject*backward
+# Rejects the proposed move if it is going backwards
+sp {select*move*reject*backward
+   (state <s> ^operator <o> +
+              ^directions <d>
+              ^last-direction <dir>)
+   (<d> ^value <dir>
+        ^opposite <o-dir>)
+   (<o> ^name move
+        ^direction <o-dir>)
+-->
+   (write | Reject | <o-dir>)
+   (<s> ^operator <o> -)} 
